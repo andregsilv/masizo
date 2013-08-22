@@ -1,18 +1,19 @@
 #include <gmp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 typedef struct {
     long int len;
-    char *chars;
+    unsigned char *chars;
 } CharArray;
 CharArray readToArray(FILE *file) {
     CharArray data;
     long int pos = ftell(file);
     fseek(file,0,SEEK_END);
     long int end = ftell(file);
-    data.len = (end-pos) / sizeof(char);
+    data.len = end-pos;
     fseek(file,pos,SEEK_SET);
-    data.chars = malloc(data.len * sizeof(char));
+    data.chars = malloc(data.len);
     for(int i=0; i<data.len; i++) {
         data.chars[i] = fgetc(file);
     }
@@ -21,17 +22,17 @@ CharArray readToArray(FILE *file) {
 CharArray getTable(CharArray text) {
     CharArray table;
     table.len = 0;
-    table.chars = malloc(sizeof(char) * 256);
-    memset(table.chars,0,sizeof(char) * 256);
+    table.chars = malloc(256);
+    memset(table.chars,0,256);
     for (int i=0; i<text.len; i++) {
-        char contain = 0;
+        char contains = 0;
         for (int j=0; j<table.len; j++) {
             if (text.chars[i] == table.chars[j]) {
-                contain = 1;
+                contains = 1;
                 break;
             }
         }
-        if (!contain) {
+        if (!contains) {
             table.chars[table.len++] = text.chars[i];
         }
     }
@@ -39,7 +40,7 @@ CharArray getTable(CharArray text) {
 }
 CharArray getRelativeArray(CharArray text, CharArray table) {
     CharArray relative;
-    relative.chars = malloc(sizeof(char) * text.len);
+    relative.chars = malloc(text.len);
     relative.len = text.len;
     for(int i=0; i<text.len; i++) {
         for (int j=0; j<table.len; j++) {
@@ -55,32 +56,39 @@ void compress(char *file1, char *file2) {
     //allocate resources
     mpz_t data;
     mpz_init(data);
-    FILE* inFile = fopen(file1,"r");
-    FILE* outFile = fopen(file2,"w");
+    FILE *inFile = fopen(file1,"rb");
     //begin compression
     CharArray tx = readToArray(inFile);
+    fclose(inFile);
+
     CharArray tab = getTable(tx);
     CharArray rel = getRelativeArray(tx,tab);
+    free(tx.chars);
+
+    FILE *outFile = fopen(file2,"wb");
     //write size of table
     int base = tab.len;
+    printf("Base is %i\n",base);
     fputc(base-1,outFile);
     //write table
     for(int i=0; i<base; i++) {
         fputc(tab.chars[i],outFile);
     }
-    putchar('\n');
     //adds to operator
     for(int i=rel.len-1; i>=0; i--) {
         mpz_mul_ui(data,data,base);
         mpz_add_ui(data,data,rel.chars[i]);
     }
-    mpz_out_raw(outFile, data);
+    FILE *log = fopen("log1","wb");
+	  gmp_fprintf(log,"%Zd\n",data);
+    fclose(log);
+
+    size_t a = mpz_out_raw(outFile, data);
+    printf("%d bytes written\n",a);
     //free resources
     free(rel.chars);
     free(tab.chars);
-    free(tx.chars);
     fclose(outFile);
-    fclose(inFile);
     mpz_clear(data);
 }
 
@@ -88,23 +96,29 @@ void decompress(char *file1, char *file2) {
     //Allocate resources
     mpz_t data;
     mpz_init(data);
-    FILE* inFile = fopen(file1,"r");
-    FILE* outFile = fopen(file2,"w");
+    FILE *inFile = fopen(file1,"rb");
     //get size of table
-    char base = fgetc(inFile) + 1;
+    int base = fgetc(inFile) + 1;
+    printf("Base is %i\n",base);
     //read table
     char tab[base];
     for(int i=0; i<base; i++) {
         tab[i]= fgetc(inFile);
     }
-    mpz_inp_raw(data, inFile);
+    size_t a = mpz_inp_raw(data, inFile);
+    printf("%d bytes read\n",a);
     fclose(inFile);
-    int c, i=0;
+
+    FILE *log = fopen("log2","wb");
+	  gmp_fprintf(log,"%Zd\n",data);
+    fclose(log);
+
+    int i=0;
+    unsigned long int remainder;
+    FILE *outFile = fopen(file2,"wb");
     while (mpz_cmp_ui(data,0)>0) { //Enquanto for maior que zero
-        c = mpz_fdiv_ui(data,base);
-        fputc(tab[c],outFile);
-        mpz_sub_ui(data,data,c);
-        mpz_div_ui(data,data,base);
+        remainder = mpz_fdiv_q_ui(data,data,base);
+        fputc(tab[remainder],outFile);
     }
     //Release Resources
     fclose(outFile);
